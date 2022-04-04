@@ -49,8 +49,6 @@ myIp = s.getsockname()[0]
 
 #We know that the FW Mgmt private IP will be statically set to x.x.0.4
 MgmtIp =".".join((myIp.split('.')[0], myIp.split('.')[1], '0', '4'))
-#We know that DB IP is going to have x.x.4.5...so just need prefix
-DBServerIP = ".".join((myIp.split('.')[0], myIp.split('.')[1], '4', '5'))
 
 #The api key is pre-generated for  paloalto/Pal0Alt0@123
 api_key = "LUFRPT1CU0dMRHIrOWFET0JUNzNaTmRoYmkwdjBkWWM9alUvUjBFTTNEQm93Vmx0OVhFRlNkOXdJNmVwYWk5Zmw4bEs3NjgwMkh5QT0="
@@ -212,7 +210,6 @@ def config_fw():
 
 #Configure WP server
 def config_wp(nat_fqdn):
-    global DBServerIP
     global MgmtIp
     global config_file_url
 
@@ -284,124 +281,7 @@ def config_wp(nat_fqdn):
     except subprocess.CalledProcessError, e:
         logger.info("[ERROR]: ln -sf wordpress error")
         return 'false'
-
-
-    try:
-        subprocess.check_output(shlex.split("sudo gzip -d /usr/share/doc/wordpress/examples/setup-mysql.gz"))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: gzip error")
-        return 'false'
-
-
-    #Connect to database and see if it is up...if not...wait?
-    i = 0
-    while(i<10):
-        try:
-            p = subprocess.Popen(shlex.split("mysql -udemouser -ppaloalto@123 -h %s -e 'show databases'" % (DBServerIP)),stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            output = p.communicate()[0]
-        except:
-            logger.info("[ERROR]: When contacting database ".format(sys.exc_info()[0]))
-            return 'false'
-        if ("Can't connect to MySQL server" in output):
-            logger.info("[INFO]: Database not ready yet..will try again")
-            time.sleep(15)
-            i+=1
-            continue
-        elif ("Demo" in output):
-            logger.info("[INFO]: Database up!")
-            break
-        else:
-            logger.info("[ERROR]: Demo database not found. {}".format(output))
-            if (i<10):
-                i+=1
-                break
-            else:
-                return 'false'
-
-
-    #Then continue to finish wordpress setup
-    #Just need a config file
-    try:
-        subprocess.check_output(shlex.split("sudo bash /usr/share/doc/wordpress/examples/setup-mysql -n Demo -t %s %s" % (DBServerIP, DBServerIP)))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: setup-WP error {}".format(e))
-        return 'false'
-
-    #Add user name and password to config file. Need to do this as setup-mysql is interactive!
-    try:
-        subprocess.check_output(shlex.split("sed -i \"s/define('DB_USER'.*/define('DB_USER', 'demouser');/g\" /etc/wordpress/config-%s.php" % (DBServerIP)))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: setup-WP add user error {}".format(e))
-        return 'false'
-
-
-    try:
-        subprocess.check_output(shlex.split("sed -i \"s/define('DB_PASSWORD'.*/define('DB_PASSWORD', 'paloalto@123');/g\" /etc/wordpress/config-%s.php" % (DBServerIP)))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: setup-WP add user password error {}".format(e))
-        return 'false'
-
-
-    #Rename the config file to point to the nat-vm DNS name. This will survive reboots.
-    logger.info("[INFO]: NAT FQDN = %s" % nat_fqdn)
-    try:
-        subprocess.check_output(shlex.split("sudo mv /etc/wordpress/config-%s.php /etc/wordpress/config-%s.php" % (DBServerIP, nat_fqdn)))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: File mv error {}".format(e))
-        return 'false'
-
-    #Download guess-password file
-    try:
-        #subprocess.check_output(shlex.split("wget -O /usr/lib/cgi-bin/guess-sql-root-password.cgi https://%s.blob.core.windows.net/images/guess-sql-root-password.cgi"%(StorageAccountName)))
-        subprocess.check_output(shlex.split("wget -O /usr/lib/cgi-bin/guess-sql-root-password.cgi %sguess-sql-root-password.cgi"%(config_file_url)))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: wget guess-sql-root-password.cgi error {}".format(e))
-        return 'false'
-
-    #Make it executable
-    try:
-        subprocess.check_output(shlex.split("chmod +x /usr/lib/cgi-bin/guess-sql-root-password.cgi"))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: chmod guess-sql-root-password.cgi error {}".format(e))
-        return 'false'
-
-    #Change DB IP address in the guess-sql-root-password cgi script
-    try:
-        subprocess.check_output(shlex.split("sed -i \"s/DB-IP-ADDRESS/%s/g\" /usr/lib/cgi-bin/guess-sql-root-password.cgi" % (DBServerIP)))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: change DB IP address guess-sql-root-password.cgi error {}".format(e))
-        return 'false'
-
-
-    #Download ssh-to-db.cgi file
-    try:
-        #subprocess.check_output(shlex.split("wget -O /usr/lib/cgi-bin/ssh-to-db.cgi https://%s.blob.core.windows.net/images/ssh-to-db.cgi"%(StorageAccountName)))
-        subprocess.check_output(shlex.split("wget -O /usr/lib/cgi-bin/ssh-to-db.cgi %sssh-to-db.cgi"%(config_file_url)))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: wget ssh-to-db.cgi  {}".format(e))
-        return 'false'
-
-    #Make it executable
-    try:
-        subprocess.check_output(shlex.split("chmod +x /usr/lib/cgi-bin/ssh-to-db.cgi"))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: chmod guess-sql-root-password.cgi error {}".format(e))
-        return 'false'
-
-    #Change DB IP address in the ssh-to-db cgi script
-    try:
-        subprocess.check_output(shlex.split("sed -i \"s/DB-IP-ADDRESS/%s/g\" /usr/lib/cgi-bin/ssh-to-db.cgi" % (DBServerIP)))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: setup-WP add user password error {}".format(e))
-        return 'false'
-
-    #Download sql-attack.html page
-    try:
-        #subprocess.check_output(shlex.split("wget -O /var/www/html/sql-attack.html https://%s.blob.core.windows.net/images/sql-attack.html"%(StorageAccountName)))
-        subprocess.check_output(shlex.split("wget -O /var/www/html/sql-attack.html %ssql-attack.html"%(config_file_url)))
-    except subprocess.CalledProcessError, e:
-        logger.info("[ERROR]: wget sql-attack.html error {}".format(e))
-        return 'false'
+    
 
     #Enable the cgi module
     try:
